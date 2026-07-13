@@ -4,6 +4,7 @@
  */
 import OpenAI from 'openai';
 import type {
+  ChatCompletionCreateParamsStreaming,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
@@ -19,6 +20,8 @@ export const arkStreamChat: StreamChatFn = async ({
   model,
   messages,
   temperature,
+  thinking,
+  maxTokens,
   tools,
   onToken,
   signal,
@@ -30,16 +33,19 @@ export const arkStreamChat: StreamChatFn = async ({
       }))
     : undefined;
 
-  const stream = await client.chat.completions.create(
-    {
-      model,
-      messages: messages as ChatCompletionMessageParam[],
-      temperature,
-      tools: openaiTools,
-      stream: true,
-    },
-    { signal },
-  );
+  const params = {
+    model,
+    messages: messages as ChatCompletionMessageParam[],
+    temperature,
+    max_tokens: maxTokens,
+    tools: openaiTools,
+    stream: true,
+    // 豆包扩展参数：关闭/开启深度思考。OpenAI 标准类型无此字段，透传给方舟。
+    // 文档：https://ark.volcengine.com/docs 深度思考能力使用指南
+    ...(thinking ? { thinking: { type: thinking } } : {}),
+  } as ChatCompletionCreateParamsStreaming;
+
+  const stream = await client.chat.completions.create(params, { signal });
 
   let content = '';
   // tool call 的增量分片按 index 聚合

@@ -20,8 +20,13 @@ export async function runAgent(
   opts: AgentRunOptions = {},
   streamChat: StreamChatFn = arkStreamChat,
 ): Promise<AgentRunResult> {
+  // 知识资料拼到 system prompt 尾部（内容稳定，有利于方舟前缀缓存命中、降低延迟）
+  const systemContent = def.knowledge
+    ? `${def.systemPrompt}\n\n====== 候选人背景资料（作答时充分结合，勿逐条罗列） ======\n\n${def.knowledge}`
+    : def.systemPrompt;
+
   const messages: ChatMessage[] = [
-    { role: 'system', content: def.systemPrompt },
+    { role: 'system', content: systemContent },
     ...userMessages,
   ];
   const maxIterations = def.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -32,6 +37,8 @@ export async function runAgent(
       model: def.model ?? env.ark.modelId,
       messages,
       temperature: def.temperature,
+      thinking: def.thinking,
+      maxTokens: def.maxTokens,
       tools: def.tools,
       onToken: opts.onToken,
       signal: opts.signal,
