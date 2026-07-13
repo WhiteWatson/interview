@@ -1,4 +1,7 @@
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
 import express from 'express';
 import { env } from './config/env.js';
 import { handleAnalyze } from './routes/analyze.js';
@@ -12,6 +15,15 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/analyze', handleAnalyze);
+
+// 生产环境：同源托管前端静态产物（apps/web/dist），使 /api 与 /ws 无需跨域/代理
+const webDist = join(dirname(fileURLToPath(import.meta.url)), '../../apps/web/dist');
+if (existsSync(webDist)) {
+  app.use(express.static(webDist));
+  app.get('*', (_req, res) => {
+    res.sendFile(join(webDist, 'index.html'));
+  });
+}
 
 const server = createServer(app);
 const asrWss = createAsrWss();
