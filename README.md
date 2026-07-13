@@ -1,181 +1,64 @@
-# React Speech service sample app
+# Interview Copilot
 
-This sample shows how to integrate the Azure Speech service into a sample React application. This sample shows design pattern examples for authentication token exchange and management, as well as capturing audio from a microphone or file for speech-to-text conversions.
+实时面试助手：麦克风采集面试官提问 → **豆包流式语音识别 2.0** 实时转写 → 一键交给 **Doubao-Seed-2.0-mini** 流式生成回答建议（站内全屏结果页展示）。
 
-## Prerequisites
+## 架构
 
-1. This article assumes that you have an Azure account and Speech service subscription. If you don't have an account and subscription, [try the Speech service for free](https://docs.microsoft.com/azure/cognitive-services/speech-service/overview#try-the-speech-service-for-free).
-1. Ensure you have [Node.js](https://nodejs.org/en/download/) installed.
-
-## How to run the app
-
-1. Clone this repo, then change directory to the project root and run `npm install` to install dependencies.
-1. Add your Azure Speech key and region to the `.env` file, replacing the placeholder text.
-1. To run the Express server and React app together, run `npm run dev`.
-
-## Change recognition language
-
-To change the source recognition language, change the locale strings in `App.js` lines **32** and **66**, which sets the recognition language property on the `SpeechConfig` object.
-
-```javascript
-speechConfig.speechRecognitionLanguage = 'en-US'
+```
+┌─────────────────────────── pnpm monorepo ───────────────────────────┐
+│                                                                      │
+│  apps/web        Vite + React + TS + Tailwind v4 + shadcn 风格组件    │
+│                  Vercel/Geist 暗色设计；AudioWorklet 采集 16k PCM      │
+│                                                                      │
+│  server          Express + TS（BFF + Agent harness）                 │
+│    ├─ asr/       豆包 ASR 二进制协议封包/解包 + WS 代理                 │
+│    ├─ agent/     可插拔 Agent 编排：provider / prompts / tools        │
+│    └─ routes/    /ws/asr（WS 代理）、/api/analyze（SSE 流式）          │
+│                                                                      │
+│  packages/shared 前后端共享的消息协议类型                              │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-For a full list of supported locales, see the [language support article](https://docs.microsoft.com/azure/cognitive-services/speech-service/language-support#speech-to-text).
+### 数据链路
 
-## Speech-to-text from microphone
+1. **语音转写**：浏览器麦克风 → AudioWorklet 重采样 16kHz/16bit/mono、200ms 分包 → `ws://…/ws/asr` → 服务端加鉴权头、按豆包二进制协议封帧（gzip）→ `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`（双向流式优化版 + 二遍识别）→ 实时逐字上屏，`definite` 分句落为消息
+2. **AI 分析**：点消息「搜索」→ `POST /api/analyze` → Agent harness 调豆包模型（OpenAI 兼容，`stream:true`）→ SSE 逐 token 回传 → 全屏结果页流式渲染 Markdown（可关闭、二次打开读缓存）
 
-To convert speech-to-text using a microphone, run the app and then click **Convert speech to text from your mic.**. This will prompt you for access to your microphone, and then listen for you to speak. The following function `sttFromMic` in `App.js` contains the implementation.
+API Key 只存在于服务端 `.env`，前端零暴露。
 
-```javascript
-async sttFromMic() {
-    const tokenObj = await getTokenOrRefresh();
-    const speechConfig = speechsdk.SpeechConfig.fromAuthorizationToken(tokenObj.authToken, tokenObj.region);
-    speechConfig.speechRecognitionLanguage = 'en-US';
-    
-    const audioConfig = speechsdk.AudioConfig.fromDefaultMicrophoneInput();
-    const recognizer = new speechsdk.SpeechRecognizer(speechConfig, audioConfig);
+## 运行
 
-    this.setState({
-        displayText: 'speak into your microphone...'
-    });
-
-    recognizer.recognizeOnceAsync(result => {
-        let displayText;
-        if (result.reason === ResultReason.RecognizedSpeech) {
-            displayText = `RECOGNIZED: Text=${result.text}`
-        } else {
-            displayText = 'ERROR: Speech was cancelled or could not be recognized. Ensure your microphone is working properly.';
-        }
-
-        this.setState({
-            displayText: displayText
-        });
-    });
-}
+```bash
+pnpm install
+cp .env.example .env   # 填入你的火山引擎 ASR key 与方舟模型 key/接入点
+pnpm dev               # 前端 :3000（代理到后端 :3001）
 ```
 
-Running speech-to-text from a microphone is done by creating an `AudioConfig` object and using it with the recognizer.
+### .env 说明
 
-```javascript
-const audioConfig = speechsdk.AudioConfig.fromDefaultMicrophoneInput();
-const recognizer = new speechsdk.SpeechRecognizer(speechConfig, audioConfig);
+| 变量 | 说明 |
+| --- | --- |
+| `VOLC_ASR_API_KEY` | 火山引擎新版控制台 API Key（豆包流式语音识别） |
+| `VOLC_ASR_RESOURCE_ID` | `volc.seedasr.sauc.duration`（小时版）/ `…concurrent`（并发版） |
+| `ARK_API_KEY` | 火山方舟 API Key |
+| `ARK_MODEL_ID` | 推理接入点 ID（如 `ep-xxxx`，对应 Doubao-Seed-2.0-mini） |
+
+## 验证工具
+
+```bash
+# 不依赖前端，直接用本地 wav 验证 ASR 协议与鉴权：
+pnpm --filter @interview/server test:asr path/to/16k-mono.wav
+
+# 流式分析接口冒烟：
+curl -N -X POST localhost:3001/api/analyze -H 'Content-Type: application/json' \
+  -d '{"question":"请介绍一下你自己"}'
 ```
 
-## Speech-to-text from file
+## 扩展 Agent
 
-To convert speech-to-text from an audio file, run the app and then click **Convert speech to text from an audio file.**. This will open a file browser and allow you to select an audio file. The following function `fileChange` is bound to an event handler that detects the file change. 
+`server/src/agent/` 是可插拔骨架：新增一个 Agent 只需一份 `AgentDefinition`（system prompt + 可选 tools + 模型），交给 `runAgent()` 即可获得流式输出与 tool-call 循环。现有的 `interview-analyst` 是第一个实例。
 
-```javascript
-async fileChange(event) {
-    const audioFile = event.target.files[0];
-    console.log(audioFile);
-    const fileInfo = audioFile.name + ` size=${audioFile.size} bytes `;
+## 参考文档
 
-    this.setState({
-        displayText: fileInfo
-    });
-
-    const tokenObj = await getTokenOrRefresh();
-    const speechConfig = speechsdk.SpeechConfig.fromAuthorizationToken(tokenObj.authToken, tokenObj.region);
-    speechConfig.speechRecognitionLanguage = 'en-US';
-
-    const audioConfig = speechsdk.AudioConfig.fromWavFileInput(audioFile);
-    const recognizer = new speechsdk.SpeechRecognizer(speechConfig, audioConfig);
-
-    recognizer.recognizeOnceAsync(result => {
-        let displayText;
-        if (result.reason === ResultReason.RecognizedSpeech) {
-            displayText = `RECOGNIZED: Text=${result.text}`
-        } else {
-            displayText = 'ERROR: Speech was cancelled or could not be recognized. Ensure your microphone is working properly.';
-        }
-
-        this.setState({
-            displayText: fileInfo + displayText
-        });
-    });
-}
-```
-
-You need the audio file as a JavaScript [`File`](https://developer.mozilla.org/en-US/docs/Web/API/File) object, so you can grab it directly off the event target using `const audioFile = event.target.files[0];`. Next, you use the file to create the `AudioConfig` and then pass it to the recognizer.
-
-```javascript
-const audioConfig = speechsdk.AudioConfig.fromWavFileInput(audioFile);
-const recognizer = new speechsdk.SpeechRecognizer(speechConfig, audioConfig);
-```
-
-## Token exchange process
-
-This sample application shows an example design pattern for retrieving and managing tokens, a common task when using the Speech JavaScript SDK in a browser environment. A simple Express back-end is implemented in the same project under `server/index.js`, which abstracts the token retrieval process. 
-
-The reason for this design is to prevent your speech key from being exposed on the front-end, since it can be used to make calls directly to your subscription. By using an ephemeral token, you are able to protect your speech key from being used directly. To get a token, you use the Speech REST API and make a call using your speech key and region. In the Express part of the app, this is implemented in `index.js` behind the endpoint `/api/get-speech-token`, which the front-end uses to get tokens. 
-
-```javascript
-app.get('/api/get-speech-token', async (req, res, next) => {
-    res.setHeader('Content-Type', 'application/json');
-    const speechKey = process.env.SPEECH_KEY;
-    const speechRegion = process.env.SPEECH_REGION;
-
-    if (speechKey === 'paste-your-speech-key-here' || speechRegion === 'paste-your-speech-region-here') {
-        res.status(400).send('You forgot to add your speech key or region to the .env file.');
-    } else {
-        const headers = { 
-            headers: {
-                'Ocp-Apim-Subscription-Key': speechKey,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-        };
-
-        try {
-            const tokenResponse = await axios.post(`https://${speechRegion}.api.cognitive.microsoft.com/sts/v1.0/issueToken`, null, headers);
-            res.send({ token: tokenResponse.data, region: speechRegion });
-        } catch (err) {
-            res.status(401).send('There was an error authorizing your speech key.');
-        }
-    }
-});
-```
-
-In the request, you create a `Ocp-Apim-Subscription-Key` header, and pass your speech key as the value. Then you make a request to the **issueToken** endpoint for your region, and an authorization token is returned. In a production application, this endpoint returning the token should be *restricted by additional user authentication* whenever possible. 
-
-On the front-end, `token_util.js` contains the helper function `getTokenOrRefresh` that is used to manage the refresh and retrieval process. 
-
-```javascript
-export async function getTokenOrRefresh() {
-    const cookie = new Cookie();
-    const speechToken = cookie.get('speech-token');
-
-    if (speechToken === undefined) {
-        try {
-            const res = await axios.get('/api/get-speech-token');
-            const token = res.data.token;
-            const region = res.data.region;
-            cookie.set('speech-token', region + ':' + token, {maxAge: 540, path: '/'});
-
-            console.log('Token fetched from back-end: ' + token);
-            return { authToken: token, region: region };
-        } catch (err) {
-            console.log(err.response.data);
-            return { authToken: null, error: err.response.data };
-        }
-    } else {
-        console.log('Token fetched from cookie: ' + speechToken);
-        const idx = speechToken.indexOf(':');
-        return { authToken: speechToken.slice(idx + 1), region: speechToken.slice(0, idx) };
-    }
-}
-```
-
-This function uses the `universal-cookie` library to store and retrieve the token from local storage. It first checks to see if there is an existing cookie, and in that case it returns the token without hitting the Express back-end. If there is no existing cookie for a token, it makes the call to `/api/get-speech-token` to fetch a new one. Since we need both the token and its corresponding region later, the cookie is stored in the format `token:region` and upon retrieval is spliced into each value.
-
-Tokens for the service expire after 10 minutes, so the sample uses the `maxAge` property of the cookie to act as a trigger for when a new token needs to be generated. It is reccommended to use 9 minutes as the expiry time to act as a buffer, so we set `maxAge` to **540 seconds**.
-
-In `App.js` you use `getTokenOrRefresh` in the functions for speech-to-text from a microphone, and from a file. Finally, use the `SpeechConfig.fromAuthorizationToken` function to create an auth context using the token.
-
-```javascript
-const tokenObj = await getTokenOrRefresh();
-const speechConfig = speechsdk.SpeechConfig.fromAuthorizationToken(tokenObj.authToken, tokenObj.region);
-```
-
-In many other Speech service samples, you will see the function `SpeechConfig.fromSubscription` used instead of `SpeechConfig.fromAuthorizationToken`, but by **avoiding the usage** of `fromSubscription` on the front-end, you prevent your speech subscription key from becoming exposed, and instead utilize the token authentication process. `fromSubscription` is safe to use in a Node.js environment, or in other Speech SDK programming languages when the call is made on a back-end, but it is best to avoid using in a browser-based JavaScript environment.
+- [豆包流式语音识别 WebSocket 协议](https://docs.volcengine.com/docs/6561/1354869)
+- [火山方舟快速入门（OpenAI 兼容）](https://ark.volcengine.com/docs/82379/1399008)
