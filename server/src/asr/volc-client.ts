@@ -62,11 +62,14 @@ export class VolcAsrSession {
               model_name: 'bigmodel',
               enable_punc: true,
               enable_itn: true,
-              // 二遍识别：实时逐字上屏（快）+ 分句后用非流式重识别（准），
-              // definite=true 的分句即为最终结果
-              enable_nonstream: true,
               show_utterances: true,
-              result_type: 'full',
+              // 增量返回：每包只回传当前分句，避免会话变长后 payload 逐包膨胀，
+              // 否则到面试中后段每 200ms 都要传/重建整场历史，链路越来越慢
+              result_type: 'single',
+              // 800ms 静音即强制判停上屏（实时优先，不等语义分句的长静音）
+              end_window_size: 800,
+              // 刻意不开二遍识别(enable_nonstream)：二遍会对每个分句用非流式模型
+              // 重新识别一遍，分句一多就排队，导致"显示落后好几句"的累积延迟
             },
           },
           this.seq,

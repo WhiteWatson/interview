@@ -56,29 +56,37 @@ export const useAppStore = create<AppState>((set) => ({
   setAsrError: (asrError) => set({ asrError }),
 
   /**
-   * result_type=full：每次响应都携带会话内全部分句，
-   * 直接以响应为准重建 messages（definite）与 partial（非 definite）。
-   * 注意与既有消息合并：跨会话（多次录音）时保留旧消息。
+   * result_type=single（增量）：每包只回传当前分句。
+   * 采用追加式——新出现的 definite 分句 append 为消息（按 start_time 去重），
+   * 非 definite 文本作为实时 partial。避免全量重建，成本恒定、不随时长增长。
    */
   applyAsrResult: (payload) =>
     set((state) => {
       const utterances = payload.result?.utterances;
-      if (!utterances) {
+      if (!utterances || utterances.length === 0) {
         // 无分句信息时把整体 text 当作临时转写
         const text = payload.result?.text ?? '';
         return text ? { partial: text } : {};
       }
-      const sessionPrefix = state.sessionId;
-      const definite = utterances
-        .filter((u) => u.definite && u.text.trim())
-        .map((u) => ({ id: `${sessionPrefix}-${u.start_time}`, text: u.text }));
-      const partial = utterances
-        .filter((u) => !u.definite)
-        .map((u) => u.text)
-        .join('');
-      // 会话内消息全量替换，会话外（历史录音）的保留
-      const others = state.messages.filter((m) => !m.id.startsWith(`${sessionPrefix}-`));
-      return { messages: [...others, ...definite], partial };
+      const prefix = state.sessionId;
+      const existingIds = new Set(state.messages.map((m) => m.id));
+      const appended: Message[] = [];
+      let partial = '';
+      for (const u of utterances) {
+        if (u.definite && u.text.trim()) {
+          const id = `${prefix}-${u.start_time}`;
+          if (!existingIds.has(id)) {
+            appended.push({ id, text: u.text });
+            existingIds.add(id);
+          }
+        } else if (u.text) {
+          partial += u.text;
+        }
+      }
+      return {
+        messages: appended.length ? [...state.messages, ...appended] : state.messages,
+        partial,
+      };
     }),
 
   clearTranscript: () => set({ messages: [], partial: '', asrError: null }),
