@@ -1,8 +1,9 @@
 /**
- * /api/analyze 的 SSE 客户端（POST + fetch stream，EventSource 不支持 POST）。
- * 结果写入 store 的 analysis 缓存；同一消息 id 不重复请求。
+ * 结果流式客户端（POST + fetch stream，EventSource 不支持 POST）。
+ * 按消息类型分流：语音消息 → /api/analyze（面试答题建议）；
+ * 拍照消息 → /api/solve（算法题解法思路）。两者共用同一套 SSE 协议与缓存。
  */
-import type { AnalyzeEvent, AnalyzeRequest } from '@interview/shared';
+import type { AnalyzeEvent, AnalyzeRequest, SolveRequest } from '@interview/shared';
 import { useAppStore } from '@/store';
 
 const inflight = new Set<string>();
@@ -17,21 +18,32 @@ export function ensureAnalysis(messageId: string): void {
   const message = store.messages.find((m) => m.id === messageId);
   if (!message) return;
 
-  // 带上此前最多 5 条消息作为上下文
-  const idx = store.messages.indexOf(message);
-  const context = store.messages.slice(Math.max(0, idx - 5), idx).map((m) => m.text);
-
   inflight.add(messageId);
   store.updateAnalysis(messageId, { status: 'streaming', content: '', error: undefined });
-  void streamAnalyze(messageId, { question: message.text, context }).finally(() =>
-    inflight.delete(messageId),
-  );
+
+  const request =
+    message.kind === 'photo'
+      ? streamSSE(messageId, '/api/solve', { image: message.imageDataUrl } satisfies SolveRequest)
+      : streamSSE(messageId, '/api/analyze', {
+          question: message.text,
+          // 带上此前最多 5 条语音消息作为上下文（图片消息无文本，跳过）
+          context: store.messages
+            .slice(Math.max(0, store.messages.indexOf(message) - 5), store.messages.indexOf(message))
+            .filter((m): m is Extract<typeof m, { kind: 'speech' }> => m.kind === 'speech')
+            .map((m) => m.text),
+        } satisfies AnalyzeRequest);
+
+  void request.finally(() => inflight.delete(messageId));
 }
 
-async function streamAnalyze(messageId: string, body: AnalyzeRequest): Promise<void> {
+async function streamSSE(
+  messageId: string,
+  url: string,
+  body: AnalyzeRequest | SolveRequest,
+): Promise<void> {
   const store = useAppStore.getState;
   try {
-    const res = await fetch('/api/analyze', {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

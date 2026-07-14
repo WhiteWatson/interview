@@ -1,11 +1,23 @@
 import { create } from 'zustand';
 import type { AsrResultPayload } from '@interview/shared';
 
-export interface Message {
+/** 语音转写出来的一句话 */
+export interface SpeechMessage {
   /** 以分句 start_time 作为稳定 id */
   id: string;
+  kind: 'speech';
   text: string;
 }
+
+/** 拍照上传的算法题 */
+export interface PhotoMessage {
+  id: string;
+  kind: 'photo';
+  /** 压缩后的 data URL */
+  imageDataUrl: string;
+}
+
+export type Message = SpeechMessage | PhotoMessage;
 
 export interface AnalysisEntry {
   status: 'streaming' | 'done' | 'error';
@@ -35,6 +47,8 @@ interface AppState {
   setAsrError: (e: string | null) => void;
   applyAsrResult: (payload: AsrResultPayload) => void;
   clearTranscript: () => void;
+  /** 追加一条拍照消息，返回其 id */
+  addPhoto: (imageDataUrl: string) => string;
 
   openAnalysis: (id: string) => void;
   closeAnalysis: () => void;
@@ -76,7 +90,7 @@ export const useAppStore = create<AppState>((set) => ({
         if (u.definite && u.text.trim()) {
           const id = `${prefix}-${u.start_time}`;
           if (!existingIds.has(id)) {
-            appended.push({ id, text: u.text });
+            appended.push({ id, kind: 'speech', text: u.text });
             existingIds.add(id);
           }
         } else if (u.text) {
@@ -90,6 +104,12 @@ export const useAppStore = create<AppState>((set) => ({
     }),
 
   clearTranscript: () => set({ messages: [], partial: '', asrError: null }),
+
+  addPhoto: (imageDataUrl) => {
+    const id = `photo-${Date.now().toString(36)}`;
+    set((state) => ({ messages: [...state.messages, { id, kind: 'photo', imageDataUrl }] }));
+    return id;
+  },
 
   openAnalysis: (openAnalysisId) => set({ openAnalysisId }),
   closeAnalysis: () => set({ openAnalysisId: null }),

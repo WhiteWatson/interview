@@ -4,9 +4,15 @@
  * 新增一个 Agent 只需提供一份 AgentDefinition。
  */
 
+/** 多模态消息片段（图片输入用，OpenAI 兼容格式） */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  /** 纯文本，或多模态片段数组（文+图） */
+  content: string | ContentPart[];
   /** tool 消息回填时使用 */
   tool_call_id?: string;
 }

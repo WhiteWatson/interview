@@ -31,18 +31,26 @@ export function AnalysisOverlay() {
           className="fixed inset-0 z-50 flex flex-col bg-background outline-none"
           aria-describedby={undefined}
         >
-          {/* 顶栏：问题原文 + 关闭 */}
+          {/* 顶栏：问题原文（或题目缩略图）+ 关闭 */}
           <header className="flex shrink-0 items-start gap-4 border-b px-6 py-4">
             <div className="flex min-w-0 flex-1 items-start gap-3">
-              <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary">
-                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-              </span>
+              {message?.kind === 'photo' ? (
+                <img
+                  src={message.imageDataUrl}
+                  alt="题目"
+                  className="mt-0.5 h-10 w-10 shrink-0 rounded border bg-secondary object-cover"
+                />
+              ) : (
+                <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary">
+                  <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+                </span>
+              )}
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                  AI 分析
+                  {message?.kind === 'photo' ? '算法题解析' : 'AI 分析'}
                 </p>
                 <Dialog.Title className="mt-0.5 truncate text-sm font-medium text-foreground">
-                  {message?.text ?? ''}
+                  {message?.kind === 'photo' ? '拍照识别的算法题' : (message?.text ?? '')}
                 </Dialog.Title>
               </div>
             </div>

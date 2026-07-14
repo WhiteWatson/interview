@@ -36,7 +36,15 @@ export interface AnalyzeRequest {
   context?: string[];
 }
 
-/** /api/analyze SSE 事件 */
+/** POST /api/solve 请求体：拍照识别算法题并给解法 */
+export interface SolveRequest {
+  /** 题目图片，data URL（如 data:image/jpeg;base64,...） */
+  image: string;
+  /** 可选：用户补充说明（如"用 TypeScript 写"） */
+  note?: string;
+}
+
+/** /api/analyze 与 /api/solve 共用的 SSE 事件 */
 export type AnalyzeEvent =
   | { type: 'delta'; text: string }
   | { type: 'done' }
