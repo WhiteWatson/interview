@@ -33,6 +33,10 @@ export const projectDocs: KnowledgeDoc[] = [
     title: 'Mojo 前端应用架构（apps/mojo，实时 agent chat 微前端）',
     body: load('project-mojo-architecture.md'),
   },
+  {
+    title: 'AML Design 组件与 AI UI 生态架构（组件库 / 浏览器编译器 / AI 动态 UI 沙箱 / 轨迹库 / 文档站）',
+    body: load('project-aml-design.md'),
+  },
 ];
 
 /** 组装成一整块知识文本，注入到 system prompt 尾部 */
