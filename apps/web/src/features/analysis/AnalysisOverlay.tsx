@@ -4,6 +4,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { RotateCcw, Sparkles, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { ensureAnalysis } from '@/features/analysis/analyze-client';
 import { useAppStore } from '@/store';
@@ -82,11 +83,24 @@ export function AnalysisOverlay() {
                 </div>
               ) : (
                 <article
-                  className={`prose prose-sm prose-invert max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground ${
+                  className={`prose prose-sm prose-invert max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground prose-table:text-foreground/90 prose-th:text-foreground ${
                     entry.status === 'streaming' ? 'stream-cursor' : ''
                   }`}
                 >
-                  <ReactMarkdown>{entry.content}</ReactMarkdown>
+                  {/* remark-gfm：算法题解法概览用到 Markdown 表格，需 GFM 支持 */}
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      // 宽表格在窄屏自己横向滚动，不撑破页面
+                      table: (props) => (
+                        <div className="overflow-x-auto">
+                          <table {...props} />
+                        </div>
+                      ),
+                    }}
+                  >
+                    {entry.content}
+                  </ReactMarkdown>
                 </article>
               )}
             </div>
